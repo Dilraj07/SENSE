@@ -1,0 +1,103 @@
+#include <DHT.h>
+
+// ----- Pin Definitions -----
+#define DHTPIN 2
+#define DHTTYPE DHT11
+#define PIRPIN 3
+#define BUZZERPIN 4
+#define SOUND_AO A0
+#define SOUND_DO 5
+#define SMOKEPIN A1
+
+DHT dht(DHTPIN, DHTTYPE);
+
+// ----- Thresholds -----
+const int noiseThresholdPercent = 20;  // Set sensitivity for analog mode
+const int smokeThreshold = 400;        // Adjust based on calibration
+
+void setup() {
+  Serial.begin(9600);
+  dht.begin();
+
+  pinMode(PIRPIN, INPUT);
+  pinMode(BUZZERPIN, OUTPUT);
+  pinMode(SOUND_DO, INPUT);
+  digitalWrite(BUZZERPIN, LOW);
+
+  Serial.println("System Initializing...");
+  delay(5000); // PIR stabilization
+  Serial.println("System Ready.");
+}
+
+void loop() {
+  // --- Read Temp & Humidity ---
+  float temperature = dht.readTemperature();
+  float humidity = dht.readHumidity();
+
+  // --- Read Motion ---
+  int motionDetected = digitalRead(PIRPIN);
+
+  // --- Read Smoke Sensor ---
+  int smokeValue = analogRead(SMOKEPIN);
+  bool smokeConnected = smokeValue >= 10;
+
+  // --- Read Sound Sensor ---
+  int analogValue = analogRead(SOUND_AO);
+  bool soundAOConnected = analogValue >= 10;
+  int soundLevelPercent = map(analogValue, 0, 1023, 0, 100);
+
+  // --- Decide to activate buzzer ---
+  bool buzzerOn = false;
+
+  if (soundAOConnected) {
+    // Use analog AO
+    if (soundLevelPercent > noiseThresholdPercent) {
+      buzzerOn = true;
+    }
+  } else {
+    // Fall back to digital DO
+    int digitalNoise = digitalRead(SOUND_DO);
+    if (digitalNoise == HIGH) {
+      buzzerOn = true;
+    }
+  }
+
+  digitalWrite(BUZZERPIN, buzzerOn ? HIGH : LOW);
+
+  // --- Serial Output ---
+  Serial.println("-------------------------------------------------");
+
+  if (!isnan(temperature) && !isnan(humidity)) {
+    Serial.print("Temp: "); Serial.print(temperature); Serial.print(" °C | ");
+    Serial.print("Humidity: "); Serial.print(humidity); Serial.println(" %");
+  } else {
+    Serial.println("Failed to read DHT sensor");
+  }
+
+  Serial.print("Motion: ");
+  Serial.println(motionDetected == HIGH ? "Detected" : "None");
+
+  if (soundAOConnected) {
+    Serial.print("Sound (Analog): ");
+    Serial.print("Raw: "); Serial.print(analogValue);
+    Serial.print(" | Level: "); Serial.print(soundLevelPercent); Serial.println(" %");
+  } else {
+    int digitalNoise = digitalRead(SOUND_DO);
+    Serial.print("Sound (Digital only): ");
+    Serial.println(digitalNoise == HIGH ? "Loud Sound Detected" : "Quiet");
+  }
+
+  if (smokeConnected) {
+    Serial.print("Air Quality (Raw): ");
+    Serial.print(smokeValue);
+    if (smokeValue > smokeThreshold) {
+      Serial.println(" → Poor Air Quality 🚨");
+    } else {
+      Serial.println(" → Air is OK 👍");
+    }
+  } else {
+    Serial.println("Smoke Sensor not connected or faulty.");
+  }
+
+  delay(2000);
+}
